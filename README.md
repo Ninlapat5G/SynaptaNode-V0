@@ -6,17 +6,20 @@ ESP32 Arduino library สำหรับระบบ [SynaptaOS](https://github.
 
 ## How it fits
 
-```
-SynaptaOS Web App (browser)
-     │  mqtt_publish("bedroom/lamp/set", "ON")
-     ▼
-MQTT Broker
-     │
-     ▼
-ESP32 + SynaptaNode
-     │  publish("bedroom/lamp/state", "ON", retain=true)
-     ▼
-MQTT Broker → Web App updates UI
+```mermaid
+flowchart TD
+    classDef app    fill:#1d3557,color:#fff,stroke:#457b9d,stroke-width:2px
+    classDef broker fill:#457b9d,color:#fff,stroke:none
+    classDef hw     fill:#2d6a4f,color:#fff,stroke:none
+
+    WA["SynaptaOS Web App (browser)"]:::app
+    B[MQTT Broker]:::broker
+    ESP["ESP32 + SynaptaNode"]:::hw
+
+    WA -->|"publish /{topic}/set"| B
+    B --> ESP
+    ESP -->|"publish /{topic}/state  (retain)"| B
+    B -->|"UI sync"| WA
 ```
 
 Web AI คุยกับ ESP32 โดยตรง — ไม่ต้องมี hub สำหรับการควบคุม device
