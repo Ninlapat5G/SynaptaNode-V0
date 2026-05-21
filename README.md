@@ -120,15 +120,6 @@ SynaptaSensor  temp  ("bedroom/temp");    // publish only
 
 ---
 
-## Coming soon
-
-- **Manifest auto-discovery** — Web App ค้นพบ devices อัตโนมัติโดยไม่ต้องกรอกเอง (library พร้อมแล้ว รอฝั่ง Web App)
-- **Dynamic Rules** — สร้าง automation rule บน node ผ่าน MQTT, persist ลง NVS (library พร้อมแล้ว รอฝั่ง Web App)
-- **OTA update** — อัปเดต firmware ผ่าน MQTT/HTTP
-- **WiFi Provisioning** — ตั้งค่าครั้งแรกผ่าน hotspot ไม่ต้องแก้ code
-
----
-
 ## License
 
 LGPL v2.1 — ใช้ใน sketch ได้โดยไม่ต้อง open source sketch ของคุณ
