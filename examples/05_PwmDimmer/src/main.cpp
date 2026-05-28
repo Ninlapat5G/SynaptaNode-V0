@@ -12,19 +12,13 @@
 
 SynaptaAnalog led("bedroom/led");
 
-void setup() {
-    Serial.begin(115200);
+extern "C" void app_main() {
+    led.fade(500);   // ค่อยๆ เปลี่ยนค่าใน 500ms
+    led.gamma();     // gamma 2.2 สำหรับ LED ให้ตาเห็นเป็น linear
 
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-
-    led.fade(500);   // ค่อยๆ เปลี่ยนค่าใน 500ms
-    led.gamma();     // gamma 2.2 สำหรับ LED ให้ตาเห็นเป็น linear
-}
-
-void loop() {
-    Synapta.loop();
 }
 
 /*

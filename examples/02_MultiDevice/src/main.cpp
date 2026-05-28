@@ -11,31 +11,21 @@ SynaptaAnalog  dimmer("bedroom/dimmer");
 
 
 void onRelayChange(bool on) {
-    Serial.println(on ? "Relay: ON" : "Relay: OFF");
+    printf(on ? "Relay: ON\n" : "Relay: OFF\n");
 }
 
 
-void setup() {
-    Serial.begin(115200);
+extern "C" void app_main() {
+    // ตั้ง callback ก่อน start() เพื่อป้องกัน race condition
+    relay.onCommand(onRelayChange);
+
+    dimmer.gamma();   // gamma 2.2 สำหรับ LED ให้ตาเห็นเป็น linear
+
+    dimmer.onValue([](int val) {
+        printf("Dimmer: %d/255\n", val);
+    });
 
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-
-    // ส่งชื่อ function เข้าไปตรงๆ — ไม่ต้อง lambda
-    relay.onCommand(onRelayChange);
-
-    // ถ้า dimmer ต่อกับ LED — เปิด gamma ให้ตาเห็น "ค่อยๆ สว่าง" สมจริง
-    dimmer.gamma();
-
-    // callback แบบ lambda
-    dimmer.onValue([](int val) {
-        Serial.print("Dimmer: ");
-        Serial.print(val);
-        Serial.println("/255");
-    });
-}
-
-void loop() {
-    Synapta.loop();
 }

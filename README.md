@@ -2,8 +2,9 @@
 
 ESP32 library สำหรับระบบ [SynaptaOS](https://github.com/Ninlapat5G/SynaptaOS-V0) — เชื่อม ESP32 เข้ากับ AI smart home ผ่าน **MQTT 5** ใน 10 บรรทัด
 
-> **v2.0** — ใช้ `espressif/esp-mqtt` (built-in ESP-IDF) แทน library ภายนอก  
-> รองรับ MQTT 5 จริง: `responseTopic`, `correlationData`, `messageExpiryInterval`
+> **v3.0 — ESP-IDF framework**  
+> เปลี่ยนจาก Arduino → ESP-IDF เพื่อรองรับ MQTT 5 จริง  
+> Arduino SDK compile `libmqtt.a` มาแบบ MQTT 3 เท่านั้น — ใช้ MQTT 5 API ไม่ได้
 
 ---
 
@@ -22,37 +23,33 @@ MQTT Broker (MQTT 5)
 Web App — UI sync, auto-discover devices
 ```
 
-Web AI คุยกับ ESP32 โดยตรง ไม่ต้องมี hub สำหรับควบคุม device
-
 ---
 
 ## Installation (PlatformIO)
 
-**ต้องใช้ PlatformIO** — ไม่รองรับ Arduino IDE (library ใช้ ESP-IDF `esp-mqtt` ซึ่งไม่ได้อยู่ใน Arduino Library Manager)
+**ต้องใช้ PlatformIO + ESP-IDF framework** — ไม่รองรับ Arduino IDE
 
-**วิธีที่ 1: ผ่าน lib_deps** (แนะนำ)
+**ขั้นตอน**
 
-สร้าง PlatformIO project แล้วใส่ใน `platformio.ini`:
+1. สร้าง PlatformIO project แล้วใส่ใน `platformio.ini`:
 
 ```ini
 [env:esp32dev]
 platform  = espressif32
 board     = esp32dev
-framework = arduino
+framework = espidf
 lib_deps  =
     https://github.com/Ninlapat5G/SynaptaNode.git
 ```
 
-`library.json` ใน repo จะ inject `-DCONFIG_MQTT_PROTOCOL_5=1` ให้อัตโนมัติ — ไม่ต้องตั้งเพิ่ม
+2. สร้างไฟล์ `sdkconfig.defaults` ในโปรเจค (สำคัญมาก — ขาดไม่ได้):
 
-**วิธีที่ 2: Local copy**
-
-Clone repo แล้วใส่ path ใน `lib_deps`:
-```ini
-lib_deps = /path/to/SynaptaNode
+```
+CONFIG_MQTT_PROTOCOL_5=y
+CONFIG_MQTT_TRANSPORT_SSL=y
 ```
 
-จากนั้น `#include <Synapta.h>` ใน `src/main.cpp`
+3. `#include <Synapta.h>` ใน `src/main.cpp`
 
 ---
 
@@ -63,14 +60,11 @@ lib_deps = /path/to/SynaptaNode
 
 SynaptaDigital lamp("bedroom/lamp");
 
-void setup() {
+extern "C" void app_main() {
     Synapta.wifi("MyWiFi", "password");
     Synapta.baseTopic("home/smarthome");
     Synapta.start();
-}
-
-void loop() {
-    Synapta.loop();
+    // ไม่ต้อง loop() — library รัน background task ให้เอง
 }
 ```
 
@@ -89,10 +83,9 @@ void loop() {
 | `broker(host, port, tls)` | เปลี่ยน broker (default: HiveMQ public, TLS 8883) |
 | `mqttAuth(user, pass)` | สำหรับ broker ที่ต้อง auth |
 | `nodeId(id)` | ตั้งชื่อ node เอง (default: derive จาก MAC address) |
-| `start()` | เชื่อม WiFi (blocking) แล้วเริ่ม MQTT (background) |
+| `start()` | เชื่อม WiFi (blocking) แล้วเริ่ม MQTT + background task |
 | `configure(ssid, pass, base)` | บันทึก credential ลง NVS + start |
 | `begin()` | โหลด credential จาก NVS แล้ว start |
-| `loop()` | เรียกใน `loop()` ทุก cycle — process messages + device logic |
 | `isConnected()` | `true` เมื่อ MQTT พร้อม |
 | `onConnect(cb)` / `onDisconnect(cb)` | event callbacks |
 
@@ -147,15 +140,18 @@ SynaptaSensor  temp  ("bedroom/temp");    // publish only
 |--------|---------|
 | `01_BasicDigital` | relay ON/OFF พื้นฐาน |
 | `02_MultiDevice` | หลาย device + 2 callback styles |
-| `03_Sensor` | DHT22 publish ตามช่วงเวลา |
+| `03_Sensor` | publish ค่า sensor ตามช่วงเวลา (mock sensor) |
 | `04_PhysicalButton` | ปุ่มกดจริง + sync กับ Web App |
 | `05_PwmDimmer` | LED dimmer + fade + gamma |
-| `06_Automation` | sensor → relay rule บน node เอง |
+| `06_Automation` | sensor → relay rule บน node เอง (mock sensor) |
 | `07_NvsCredentials` | บันทึก credential ลง NVS ครั้งเดียว |
 | `08_MqttAuth` | broker ที่ต้อง user/pass |
 | `09_LocalBroker` | Mosquitto/EMQX ใน LAN (no TLS) |
 
-แต่ละ example มี `platformio.ini` พร้อมใช้ และ code อยู่ใน `src/main.cpp`
+แต่ละ example มี `platformio.ini`, `sdkconfig.defaults`, และ code ใน `src/main.cpp`
+
+> **หมายเหตุ 03 และ 06:** ใช้ mock sensor เพราะ DHT Arduino library ไม่รองรับ ESP-IDF  
+> ถ้าต้องการ sensor จริง ให้ใช้ ESP-IDF RMT/GPIO driver โดยตรง
 
 ---
 

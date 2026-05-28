@@ -1,41 +1,32 @@
 #pragma once
-#include <Arduino.h>
+#include <string>
 
 // Holds all connection settings for the node.
-// Can be loaded from / saved to NVRAM (Preferences) so credentials
-// survive reboots without being hardcoded in the sketch.
+// Can be loaded from / saved to NVS so credentials survive reboots.
 struct NodeConfig {
-    String wifiSSID;
-    String wifiPassword;
+    std::string wifiSSID;
+    std::string wifiPassword;
 
-    String mqttBroker   = "broker.hivemq.com";
-    int    mqttPort     = 8883;       // 8883 = TLS, 1883 = plain
-    bool   mqttTLS      = true;
-    String mqttUser;
-    String mqttPassword;
+    std::string mqttBroker   = "broker.hivemq.com";
+    int         mqttPort     = 8883;
+    bool        mqttTLS      = true;
+    std::string mqttUser;
+    std::string mqttPassword;
 
-    // Must match "Base Topic" in Web App Settings → MQTT
-    String baseTopic    = "Mylab/smarthome";
-
-    // Optional: unique name for this node, used in Dynamic Rules topics.
-    // Auto-derived from MAC address if left empty.
-    String nodeId;
-
-    // ── Constructors ─────────────────────────────────────────────────────────
+    std::string baseTopic = "Mylab/smarthome";
+    std::string nodeId;
 
     // Hardcode credentials directly in the sketch (good for dev/testing)
     NodeConfig(const char* ssid, const char* pass, const char* base)
         : wifiSSID(ssid), wifiPassword(pass), baseTopic(base) {}
 
-    // Load credentials from NVRAM (use with Synapta.begin())
+    // Load credentials from NVS (use with Synapta.begin())
     NodeConfig() = default;
 
-    // ── Persistence ──────────────────────────────────────────────────────────
-
-    void load();                // Read from NVRAM
-    void save() const;          // Write to NVRAM
+    void load();
+    void save() const;
 
     bool isValid() const {
-        return wifiSSID.length() > 0 && mqttBroker.length() > 0;
+        return !wifiSSID.empty() && !mqttBroker.empty();
     }
 };

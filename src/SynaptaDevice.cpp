@@ -1,9 +1,17 @@
 #include "SynaptaDevice.h"
 #include "SynaptaNode.h"
-#include <Preferences.h>
-#include <math.h>
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+#include "esp_timer.h"
+#include <cmath>
+#include <cstring>
+#include <string>
 
-static const char* PIN_NS = "syn-pins";  // NVS namespace สำหรับ pin config
+static const char* PIN_NS = "syn-pins";
+
+static inline uint32_t _millis() { return (uint32_t)(esp_timer_get_time() / 1000ULL); }
 
 uint8_t SynaptaDevice::_gammaLut[256];
 float   SynaptaDevice::_gammaValue = 0.0f;
@@ -19,27 +27,49 @@ void SynaptaDevice::onValue  (std::function<void(int)>  cb) { _cbAnalog  = cb; }
 
 void SynaptaDevice::attachPin(uint8_t pin) {
     _pin = pin;
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, LOW);
+    gpio_config_t io = {};
+    io.pin_bit_mask = 1ULL << pin;
+    io.mode         = GPIO_MODE_OUTPUT;
+    io.pull_up_en   = GPIO_PULLUP_DISABLE;
+    io.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io.intr_type    = GPIO_INTR_DISABLE;
+    gpio_config(&io);
+    gpio_set_level((gpio_num_t)pin, 0);
 }
 
 void SynaptaDevice::attachPWM(uint8_t pin) {
     _pin = pin;
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttach(pin, 5000, 8);
-    ledcWrite(pin, 0);
-#else
     static uint8_t nextChannel = 0;
-    _pwmChannel = (int8_t)(nextChannel++ & 0x0F);
-    ledcSetup(_pwmChannel, 5000, 8);
-    ledcAttachPin(pin, _pwmChannel);
-    ledcWrite(_pwmChannel, 0);
-#endif
+    _pwmChannel = (int8_t)(nextChannel++ & 0x07);
+
+    ledc_timer_config_t timer = {};
+    timer.speed_mode      = LEDC_LOW_SPEED_MODE;
+    timer.timer_num       = LEDC_TIMER_0;
+    timer.duty_resolution = LEDC_TIMER_8_BIT;
+    timer.freq_hz         = 5000;
+    timer.clk_cfg         = LEDC_AUTO_CLK;
+    ledc_timer_config(&timer);
+
+    ledc_channel_config_t ch = {};
+    ch.gpio_num   = pin;
+    ch.speed_mode = LEDC_LOW_SPEED_MODE;
+    ch.channel    = (ledc_channel_t)_pwmChannel;
+    ch.timer_sel  = LEDC_TIMER_0;
+    ch.intr_type  = LEDC_INTR_DISABLE;
+    ch.duty       = 0;
+    ch.hpoint     = 0;
+    ledc_channel_config(&ch);
 }
 
 void SynaptaDevice::attachButton(uint8_t pin) {
     _btnPin = pin;
-    pinMode(pin, INPUT_PULLUP);
+    gpio_config_t io = {};
+    io.pin_bit_mask = 1ULL << pin;
+    io.mode         = GPIO_MODE_INPUT;
+    io.pull_up_en   = GPIO_PULLUP_ENABLE;
+    io.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io.intr_type    = GPIO_INTR_DISABLE;
+    gpio_config(&io);
 }
 
 void SynaptaDevice::every(uint32_t intervalMs, std::function<float()> cb) {
@@ -62,12 +92,10 @@ float SynaptaDevice::value() const {
 }
 
 // ── Topic helpers ─────────────────────────────────────────────────────────────
-// topic ที่ user ตั้งไว้ เช่น "living-room/lamp"
-// ระบบเติม /set /state /config ให้เองโดยอัตโนมัติ
 
-String SynaptaDevice::_cmdTopic   (const String& base) const { return base + "/" + _topic + "/set"; }
-String SynaptaDevice::_stateTopic (const String& base) const { return base + "/" + _topic + "/state"; }
-String SynaptaDevice::_configTopic(const String& base) const { return base + "/" + _topic + "/config"; }
+std::string SynaptaDevice::_cmdTopic   (const std::string& base) const { return base + "/" + _topic + "/set"; }
+std::string SynaptaDevice::_stateTopic (const std::string& base) const { return base + "/" + _topic + "/state"; }
+std::string SynaptaDevice::_configTopic(const std::string& base) const { return base + "/" + _topic + "/config"; }
 
 const char* SynaptaDevice::typeName() const {
     if (_type == NODE_DIGITAL) return "digital";
@@ -76,10 +104,9 @@ const char* SynaptaDevice::typeName() const {
 }
 
 // ── Manifest entry ────────────────────────────────────────────────────────────
-// JSON ที่ publish ตอน connect — web app ใช้ discover devices อัตโนมัติ
 
-String SynaptaDevice::_manifestEntry(const String& base) const {
-    String j = "{\"topic\":\"";
+std::string SynaptaDevice::_manifestEntry(const std::string& base) const {
+    std::string j = "{\"topic\":\"";
     j += _topic;
     j += "\",\"type\":\"";
     j += typeName();
@@ -87,7 +114,7 @@ String SynaptaDevice::_manifestEntry(const String& base) const {
     j += _configured ? "true" : "false";
     if (_configured && _nvPin >= 0) {
         j += ",\"pin\":";
-        j += String(_nvPin);
+        j += std::to_string(_nvPin);
     }
     j += ",\"stateTopic\":\"";
     j += _stateTopic(base);
@@ -111,133 +138,130 @@ void SynaptaDevice::_handleMessage(const char* payload) {
         _executeDigital(on);
         _publishState();
     } else if (_type == NODE_ANALOG) {
-        int val = constrain(String(payload).toInt(), 0, 255);
+        int val = atoi(payload);
+        if (val < 0)   val = 0;
+        if (val > 255) val = 255;
         _executeAnalog(val);
         _publishState();
     }
-    // NODE_SENSOR ไม่รับ command
 }
 
 // ── Config handler ────────────────────────────────────────────────────────────
-// รับ JSON จาก web app: {"pin":2,"type":"digital"} หรือ {"pin":5,"type":"pwm"}
-// ถ้ามี response_topic (MQTT 5) → ส่ง ACK กลับ {"ok":true,"applied":{...}}
-// เช็คค่าเดิมใน NVS ก่อน — เขียนเฉพาะเมื่อเปลี่ยนจริง (ถนอม flash)
 
 void SynaptaDevice::_handleConfig(const char* payload, const char* response_topic,
                                    const uint8_t* correlation_data, size_t correlation_len) {
-    String p(payload);
+    std::string p(payload);
 
-    // parse "pin": N  (ไม่ใช้ ArduinoJson เพื่อไม่เพิ่ม dependency)
-    int pinIdx = p.indexOf("\"pin\":");
-    if (pinIdx < 0) return;
-    int pin = p.substring(pinIdx + 6).toInt();
+    size_t pinIdx = p.find("\"pin\":");
+    if (pinIdx == std::string::npos) return;
+    int pin = std::stoi(p.substr(pinIdx + 6));
     if (pin < 0 || pin > 48) return;
 
-    bool isPwm = (p.indexOf("\"pwm\"") >= 0 || p.indexOf("\"analog\"") >= 0);
+    bool isPwm = (p.find("\"pwm\"") != std::string::npos ||
+                  p.find("\"analog\"") != std::string::npos);
 
-    // อ่านค่าเดิมจาก NVS เพื่อเช็คว่าเปลี่ยนจริงหรือเปล่า
-    String key  = _nvKey();
-    String keyT = key + "t";
-    Preferences prefs;
-    prefs.begin(PIN_NS, true);
-    int  oldPin  = prefs.getInt (key.c_str(),  -1);
-    bool oldIsPwm = prefs.getBool(keyT.c_str(), false);
-    prefs.end();
+    std::string key  = _nvKey();
+    std::string keyT = key + "t";
 
-    bool unchanged = (oldPin == pin && oldIsPwm == isPwm);
+    nvs_handle_t h;
+    int32_t oldPin   = -1;
+    uint8_t oldIsPwm = 0;
+    if (nvs_open(PIN_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_i32(h, key.c_str(),  &oldPin);
+        nvs_get_u8 (h, keyT.c_str(), &oldIsPwm);
+        nvs_close(h);
+    }
+
+    bool unchanged = (oldPin == pin && (bool)oldIsPwm == isPwm);
 
     if (!unchanged) {
-        // บันทึกลง NVS
-        prefs.begin(PIN_NS, false);
-        prefs.putInt (key.c_str(),  pin);
-        prefs.putBool(keyT.c_str(), isPwm);
-        prefs.end();
+        if (nvs_open(PIN_NS, NVS_READWRITE, &h) == ESP_OK) {
+            nvs_set_i32(h, key.c_str(),  (int32_t)pin);
+            nvs_set_u8 (h, keyT.c_str(), (uint8_t)isPwm);
+            nvs_commit(h);
+            nvs_close(h);
+        }
+        printf("[Synapta] Config saved: %s → pin %d (%s)\n",
+               _topic.c_str(), pin, isPwm ? "pwm" : "digital");
 
-        Serial.printf("[Synapta] Config saved: %s → pin %d (%s)\n",
-                      _topic.c_str(), pin, isPwm ? "pwm" : "digital");
-
-        // Apply ทันที
         if (isPwm) attachPWM((uint8_t)pin);
         else       attachPin((uint8_t)pin);
 
         _configured = true;
         _nvPin      = pin;
     } else {
-        Serial.printf("[Synapta] Config unchanged for %s — skip NVS write\n", _topic.c_str());
+        printf("[Synapta] Config unchanged for %s — skip NVS write\n", _topic.c_str());
     }
 
-    // ส่ง ACK กลับถ้ามี response_topic (MQTT 5)
     if (response_topic && response_topic[0] != '\0') {
-        String ack = "{\"ok\":true,\"applied\":{\"pin\":";
-        ack += String(pin);
+        std::string ack = "{\"ok\":true,\"applied\":{\"pin\":";
+        ack += std::to_string(pin);
         ack += ",\"type\":\"";
         ack += isPwm ? "pwm" : "digital";
         ack += "\"}}";
         Synapta._publish(response_topic, ack.c_str(), false, 1);
-        Serial.printf("[Synapta] Config ACK → %s\n", response_topic);
+        printf("[Synapta] Config ACK → %s\n", response_topic);
     }
 }
 
 // ── Boot: load pin from NVS ───────────────────────────────────────────────────
-// เรียกใน SynaptaNode::_init() หลัง device ลงทะเบียนแล้ว
-// ถ้าไม่เคย config มาก่อน → ข้ามไป (pin ยังเป็น NO_PIN)
 
 void SynaptaDevice::_loadPinConfig() {
-    String key  = _nvKey();
-    String keyT = key + "t";
-    Preferences prefs;
-    prefs.begin(PIN_NS, true);
-    int  pin   = prefs.getInt (key.c_str(),  -1);
-    bool isPwm = prefs.getBool(keyT.c_str(), false);
-    prefs.end();
+    std::string key  = _nvKey();
+    std::string keyT = key + "t";
 
-    if (pin < 0 || pin > 48) return;  // ยังไม่เคย config
+    nvs_handle_t h;
+    if (nvs_open(PIN_NS, NVS_READONLY, &h) != ESP_OK) return;
 
-    Serial.printf("[Synapta] Loaded pin config: %s → pin %d (%s)\n",
-                  _topic.c_str(), pin, isPwm ? "pwm" : "digital");
+    int32_t pin   = -1;
+    uint8_t isPwm = 0;
+    nvs_get_i32(h, key.c_str(),  &pin);
+    nvs_get_u8 (h, keyT.c_str(), &isPwm);
+    nvs_close(h);
+
+    if (pin < 0 || pin > 48) return;
+
+    printf("[Synapta] Loaded pin config: %s → pin %d (%s)\n",
+           _topic.c_str(), (int)pin, isPwm ? "pwm" : "digital");
 
     if (isPwm) attachPWM((uint8_t)pin);
     else       attachPin((uint8_t)pin);
 
     _configured = true;
-    _nvPin      = pin;
+    _nvPin      = (int)pin;
 }
 
 // ── NVS key ───────────────────────────────────────────────────────────────────
-// djb2 hash ของ topic → 8 hex chars (ไม่เกิน 15-char limit ของ NVS key)
 
-String SynaptaDevice::_nvKey() const {
+std::string SynaptaDevice::_nvKey() const {
     uint32_t h = 5381;
     for (const char* c = _topic.c_str(); *c; c++) h = ((h << 5) + h) + *c;
     char buf[9];
     snprintf(buf, sizeof(buf), "%08lx", (unsigned long)h);
-    return String(buf);
+    return std::string(buf);
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 
 void SynaptaDevice::_loop() {
-    // Sensor: publish ตามช่วงเวลาที่กำหนด
     if (_type == NODE_SENSOR && _cbSensor && _interval > 0) {
-        if (millis() - _lastReport >= _interval) {
-            _lastReport = millis();
+        if (_millis() - _lastReport >= _interval) {
+            _lastReport = _millis();
             _stateFloat = _cbSensor();
             _publishState();
         }
     }
 
-    // PWM fade: เลื่อน _pwmCurrent → _pwmTarget ทีละ tick
     if (_type == NODE_ANALOG) _tickFade();
 
-    // Button debounce 50ms: กดแล้ว toggle + publish
     if (_btnPin != NO_PIN) {
-        bool reading = (digitalRead(_btnPin) == LOW);
+        bool reading = (gpio_get_level((gpio_num_t)_btnPin) == 0);
 
         if (reading != _btnLastReading) {
-            _btnDebounceMs = millis();
+            _btnDebounceMs = _millis();
         }
 
-        if (millis() - _btnDebounceMs > 50) {
+        if (_millis() - _btnDebounceMs > 50) {
             if (reading != _btnPressed) {
                 _btnPressed = reading;
                 if (_btnPressed) {
@@ -256,22 +280,20 @@ void SynaptaDevice::_loop() {
 
 void SynaptaDevice::_executeDigital(bool on) {
     _stateBool = on;
-    if (_pin != NO_PIN) digitalWrite(_pin, on ? HIGH : LOW);
+    if (_pin != NO_PIN) gpio_set_level((gpio_num_t)_pin, on ? 1 : 0);
     if (_cbDigital) _cbDigital(on);
 }
 
 void SynaptaDevice::_executeAnalog(int val) {
-    _stateFloat = val;   // state ที่ publish = target ที่ user สั่ง
+    _stateFloat = val;
     _pwmTarget  = val;
 
     if (_fadeMs == 0 || _pin == NO_PIN) {
-        // instant
         _pwmCurrent = val;
         _writePWM(val);
     } else {
-        // เริ่ม fade — _tickFade() จะขยับไปเองทุก loop tick
         _fadeStartVal = _pwmCurrent;
-        _fadeStartMs  = millis();
+        _fadeStartMs  = _millis();
     }
 
     if (_cbAnalog) _cbAnalog(val);
@@ -280,13 +302,10 @@ void SynaptaDevice::_executeAnalog(int val) {
 // ── PWM helpers ───────────────────────────────────────────────────────────────
 
 void SynaptaDevice::_writePWM(int v) {
-    if (_pin == NO_PIN) return;
+    if (_pin == NO_PIN || _pwmChannel < 0) return;
     int actual = (_useGamma && v >= 0 && v <= 255) ? _gammaLut[v] : v;
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(_pin, actual);
-#else
-    if (_pwmChannel >= 0) ledcWrite(_pwmChannel, actual);
-#endif
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)_pwmChannel, (uint32_t)actual);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)_pwmChannel);
 }
 
 void SynaptaDevice::setGamma(float g) {
@@ -305,7 +324,7 @@ void SynaptaDevice::_tickFade() {
     if (_fadeMs == 0 || _pin == NO_PIN) return;
     if (_pwmCurrent == _pwmTarget)      return;
 
-    uint32_t elapsed = millis() - _fadeStartMs;
+    uint32_t elapsed = _millis() - _fadeStartMs;
     int next;
     if (elapsed >= _fadeMs) {
         next = _pwmTarget;
@@ -323,22 +342,32 @@ void SynaptaDevice::_tickFade() {
 // ── State publish ─────────────────────────────────────────────────────────────
 
 void SynaptaDevice::_publishState() {
-    const String& base = Synapta.config().baseTopic;
-    String payload;
-    if (_type == NODE_DIGITAL)      payload = _stateBool ? "true" : "false";
-    else if (_type == NODE_ANALOG)  payload = String((int)_stateFloat);
-    else                            payload = String(_stateFloat, 2);
-    // retain + 5 นาที expiry (MQTT 5) — state เก่าหายเองถ้า node ไม่ reconnect
+    const std::string& base = Synapta.config().baseTopic;
+    std::string payload;
+    if (_type == NODE_DIGITAL) {
+        payload = _stateBool ? "true" : "false";
+    } else if (_type == NODE_ANALOG) {
+        payload = std::to_string((int)_stateFloat);
+    } else {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.2f", _stateFloat);
+        payload = buf;
+    }
+    // retain + 5 นาที expiry — state เก่าหายเองถ้า node ไม่ reconnect
     Synapta._publish(_stateTopic(base).c_str(), payload.c_str(), true, 1, 300);
 }
 
 // ── Bool parser ───────────────────────────────────────────────────────────────
 
 bool SynaptaDevice::_parseBool(const char* s) const {
-    String str(s);
-    str.trim();
-    if (str.equalsIgnoreCase("toggle")) return !_stateBool;
-    return str.equalsIgnoreCase("true") ||
-           str.equalsIgnoreCase("on")   ||
+    std::string str(s);
+    size_t start = str.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return false;
+    size_t end = str.find_last_not_of(" \t\n\r");
+    str = str.substr(start, end - start + 1);
+
+    if (strcasecmp(str.c_str(), "toggle") == 0) return !_stateBool;
+    return strcasecmp(str.c_str(), "true") == 0 ||
+           strcasecmp(str.c_str(), "on")   == 0 ||
            str == "1";
 }

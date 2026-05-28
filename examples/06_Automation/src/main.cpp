@@ -8,39 +8,29 @@
  *
  * ทั้ง sensor + relay sync ไป Web App ตามปกติ
  *
- * Wiring: DHT22 DATA → GPIO 15
- * Library required: adafruit/DHT sensor library
+ * หมายเหตุ: ใช้ mock sensor ที่ return ค่าคงที่
+ * เพราะ DHT Arduino library ไม่รองรับ ESP-IDF framework
  */
 
 #include <Synapta.h>
-#include <DHT.h>
-
-DHT dht(15, DHT22);
 
 SynaptaSensor  temp("bedroom/temp");
 SynaptaDigital fan ("bedroom/fan");
 
+// mock sensor — แทนที่ด้วย ESP-IDF driver ของ sensor จริง
 float readTemp() {
-    float t = dht.readTemperature();
-    if (isnan(t)) return temp.read();   // อ่านไม่ได้ → ใช้ค่าเก่า ไม่ apply rule
+    static float t = 25.0f;   // ค่าคงที่ — ไม่เปิดหรือปิดพัดลม
 
-    if (t > 30 && !fan.isOn()) fan.turnOn();
-    if (t < 28 &&  fan.isOn()) fan.turnOff();
+    if (t > 30.0f && !fan.isOn()) fan.turnOn();
+    if (t < 28.0f &&  fan.isOn()) fan.turnOff();
 
     return t;
 }
 
-void setup() {
-    Serial.begin(115200);
-    dht.begin();
+extern "C" void app_main() {
+    temp.every(5000, readTemp);
 
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-
-    temp.every(5000, readTemp);
-}
-
-void loop() {
-    Synapta.loop();
 }

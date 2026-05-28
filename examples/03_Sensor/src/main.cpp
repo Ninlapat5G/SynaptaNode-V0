@@ -1,42 +1,26 @@
 /*
- * 03_Sensor — sensor publish ค่าเป็นช่วงเวลา (DHT22)
+ * 03_Sensor — sensor publish ค่าเป็นช่วงเวลา
+ *
+ * หมายเหตุ: ใช้ mock sensor ที่ return ค่าคงที่ 25.0°C
+ * เพราะ DHT Arduino library ไม่รองรับ ESP-IDF framework
+ * ถ้าต้องการ sensor จริง ให้ใช้ ESP-IDF RMT driver แทน
  *
  * Sensor publish อย่างเดียว ไม่รับ command
- *
- * Wiring: DHT22 DATA → GPIO 15
- * Library required: "DHT sensor library" by Adafruit
- *   lib_deps ใน platformio.ini: adafruit/DHT sensor library
  */
 
 #include <Synapta.h>
-#include <DHT.h>
 
-DHT dht(15, DHT22);
-
+// mock sensor — แทนที่ด้วย ESP-IDF driver ของ sensor จริง
 float readTemp() {
-    float t = dht.readTemperature();
-    if (isnan(t)) { Serial.println("Sensor read failed"); return 0.0f; }
-    return t;
+    return 25.0f;
 }
 
-// ── วิธีที่ 1: ผูก callback ใน setup() ──
 SynaptaSensor temp("bedroom/temp");
 
-// ── วิธีที่ 2: ระบุ interval + function ใน constructor เลย ──
-// SynaptaSensor temp("bedroom/temp", 30000, readTemp);
-
-
-void setup() {
-    Serial.begin(115200);
-    dht.begin();
+extern "C" void app_main() {
+    temp.every(30000, readTemp);
 
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-
-    temp.every(30000, readTemp);   // ตัดออกได้ถ้าใช้วิธีที่ 2
-}
-
-void loop() {
-    Synapta.loop();
 }

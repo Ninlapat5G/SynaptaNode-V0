@@ -15,15 +15,9 @@
 
 SynaptaDigital relay("bedroom/relay");
 
-void setup() {
-    Serial.begin(115200);
-
+extern "C" void app_main() {
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.broker("192.168.1.100", 1883, false);     // host, port, TLS=false
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-}
-
-void loop() {
-    Synapta.loop();
 }

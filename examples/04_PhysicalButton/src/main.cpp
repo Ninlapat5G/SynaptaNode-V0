@@ -13,23 +13,17 @@
 SynaptaDigital lamp("bedroom/lamp");
 
 void onLampChange(bool on) {
-    Serial.println(on ? "Lamp: ON" : "Lamp: OFF");
+    printf(on ? "Lamp: ON\n" : "Lamp: OFF\n");
 }
 
-void setup() {
-    Serial.begin(115200);
+extern "C" void app_main() {
+    lamp.attachButton(5);        // GPIO 5 — internal pull-up, debounce 50ms
+    lamp.onCommand(onLampChange);
+
+    Synapta.onConnect   ([]() { printf("[Synapta] Connected\n"); });
+    Synapta.onDisconnect([]() { printf("[Synapta] Disconnected — button still works\n"); });
 
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-
-    lamp.attachButton(5);        // GPIO 5 — internal pull-up, debounce 50ms
-    lamp.onCommand(onLampChange);
-
-    Synapta.onConnect   ([]() { Serial.println("[Synapta] Connected"); });
-    Synapta.onDisconnect([]() { Serial.println("[Synapta] Disconnected — button still works"); });
-}
-
-void loop() {
-    Synapta.loop();
 }

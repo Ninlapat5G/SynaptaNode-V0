@@ -9,16 +9,11 @@
 
 SynaptaDigital relay("bedroom/relay");
 
-void setup() {
-    Serial.begin(115200);
-
+extern "C" void app_main() {
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");
     Synapta.baseTopic("Mylab/smarthome");
     Synapta.start();
-}
-
-void loop() {
-    Synapta.loop();
+    // ไม่ต้อง loop() — library รัน background task ให้เอง
 }
 
 /*

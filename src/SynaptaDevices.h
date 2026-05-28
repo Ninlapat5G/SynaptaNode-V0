@@ -8,8 +8,7 @@
 //   SynaptaAnalog  dimmer("bedroom/dimmer");
 //   SynaptaSensor  temp("sensors/temp");
 //
-//   void setup() {
-//     Serial.begin(115200);
+//   extern "C" void app_main() {
 //     Synapta.wifi("MyWiFi", "pass");
 //     Synapta.baseTopic("Mylab/smarthome");
 //     Synapta.start();
