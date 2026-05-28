@@ -6,6 +6,7 @@
 #include "nvs_flash.h"
 #include "esp_timer.h"
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -154,11 +155,15 @@ void SynaptaDevice::_handleConfig(const char* payload, const char* response_topi
 
     size_t pinIdx = p.find("\"pin\":");
     if (pinIdx == std::string::npos) return;
-    int pin = std::stoi(p.substr(pinIdx + 6));
+    // strtol แทน std::stoi — ESP-IDF ปิด C++ exceptions, std::stoi เจอค่าผิดจะ abort ทั้งชิป
+    const char* pinStr = p.c_str() + pinIdx + 6;
+    char* endp = nullptr;
+    long pin = strtol(pinStr, &endp, 10);
+    if (endp == pinStr) return;          // ไม่มีตัวเลขตามมา — ข้อความเพี้ยน ปล่อยผ่าน ไม่แครช
     if (pin < 0 || pin > 48) return;
 
-    bool isPwm = (p.find("\"pwm\"") != std::string::npos ||
-                  p.find("\"analog\"") != std::string::npos);
+    // ชนิด pin ดูจาก _type ของอุปกรณ์เอง ไม่เชื่อ payload (กัน attach ผิดถ้า type ไม่ตรง)
+    bool isPwm = (_type == NODE_ANALOG);
 
     std::string key  = _nvKey();
     std::string keyT = key + "t";
@@ -182,7 +187,7 @@ void SynaptaDevice::_handleConfig(const char* payload, const char* response_topi
             nvs_close(h);
         }
         printf("[Synapta] Config saved: %s → pin %d (%s)\n",
-               _topic.c_str(), pin, isPwm ? "pwm" : "digital");
+               _topic.c_str(), (int)pin, isPwm ? "pwm" : "digital");
 
         if (isPwm) attachPWM((uint8_t)pin);
         else       attachPin((uint8_t)pin);

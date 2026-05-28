@@ -52,7 +52,8 @@ private:
     std::function<void()> _cbConnect;
     std::function<void()> _cbDisconnect;
 
-    SemaphoreHandle_t          _mutex = nullptr;
+    SemaphoreHandle_t          _mutex = nullptr;     // ป้องกัน _inbox
+    SemaphoreHandle_t          _pubMutex = nullptr;  // ส่ง publish ทีละข้อความ (กัน MQTT5 property ชนกัน)
     std::vector<_SynaptaMsg>   _inbox;
     std::vector<SynaptaDevice*> _devices;
     TaskHandle_t               _loopTask = nullptr;

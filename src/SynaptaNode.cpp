@@ -27,7 +27,10 @@ static EventGroupHandle_t s_wifiEG;
 
 static void wifiEventHandler(void*, esp_event_base_t base, int32_t id, void*) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START)        esp_wifi_connect();
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) esp_wifi_connect();
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(2000));   // หน่วงก่อน retry — กัน reconnect รัว ๆ ตอน AP ล่ม/รหัสผิด
+        esp_wifi_connect();
+    }
     if (base == IP_EVENT   && id == IP_EVENT_STA_GOT_IP)
         xEventGroupSetBits(s_wifiEG, WIFI_CONNECTED_BIT);
 }
@@ -87,7 +90,12 @@ void SynaptaNodeClass::configure(const char* ssid, const char* pass, const char*
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 void SynaptaNodeClass::_init() {
-    _mutex = xSemaphoreCreateMutex();
+    if (_loopTask) {                      // กันเรียก start()/begin() ซ้ำ — init รอบเดียวพอ
+        printf("[Synapta] already started — ignoring duplicate init\n");
+        return;
+    }
+    _mutex    = xSemaphoreCreateMutex();
+    _pubMutex = xSemaphoreCreateMutex();
 
     _devices.clear();
     for (auto* d : _SynaptaRegistry::devices()) {
@@ -262,6 +270,10 @@ bool SynaptaNodeClass::_publish(const char* topic, const char* payload,
                                 bool retain, int qos, uint32_t expirySeconds) {
     if (!_client || !_connected) return false;
 
+    // ส่งทีละข้อความ — set_publish_property เป็น state ของ client ทั้งตัว
+    // ถ้า 2 task ส่งพร้อมกัน expiry อาจไปติดผิดข้อความ
+    if (_pubMutex) xSemaphoreTake(_pubMutex, portMAX_DELAY);
+
 #ifdef CONFIG_MQTT_PROTOCOL_5
     if (expirySeconds > 0) {
         esp_mqtt5_publish_property_config_t prop = {};
@@ -279,6 +291,7 @@ bool SynaptaNodeClass::_publish(const char* topic, const char* payload,
     }
 #endif
 
+    if (_pubMutex) xSemaphoreGive(_pubMutex);
     return ret >= 0;
 }
 
