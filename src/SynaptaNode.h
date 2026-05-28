@@ -5,8 +5,9 @@
 #include <functional>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#include "esp_mqtt_client.h"
-#include "mqtt5_client.h"
+// ESP-IDF esp-mqtt component — path จาก tools/sdk/{chip}/include/
+// mqtt5_client.h ถูก auto-include เมื่อ CONFIG_MQTT_PROTOCOL_5=1
+#include "mqtt/esp-mqtt/include/esp_mqtt_client.h"
 #include "NodeConfig.h"
 #include "SynaptaDevice.h"
 
