@@ -6,7 +6,7 @@
   "authors": [{ "name": "Synapta", "maintainer": true }],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ninlapat5G/SynaptaNode"
+    "url": "https://github.com/Ninlapat5G/SynaptaNode-V0"
   },
   "license": "LGPL-2.1",
   "frameworks": ["espidf"],
