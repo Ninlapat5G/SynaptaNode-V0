@@ -48,10 +48,16 @@ public:
 
     // Internal — เรียกโดย SynaptaNode
     void   _handleMessage(const char* payload);
-    void   _handleConfig (const char* payload);  // รับ pin config จาก web: {"pin":2,"type":"digital"}
+    // response_topic/correlation_data: MQTT 5 properties สำหรับส่ง ACK กลับ
+    void   _handleConfig (const char* payload,
+                          const char* response_topic,
+                          const uint8_t* correlation_data,
+                          size_t correlation_len = 0);
     void   _loadPinConfig();                     // โหลด pin จาก NVS ตอน boot
     void   _reportState() { _publishState(); }
     void   _loop();
+
+    bool   isConfigured() const { return _configured; }
 
     String _cmdTopic   (const String& base) const;  // {base}/{topic}/set
     String _stateTopic (const String& base) const;  // {base}/{topic}/state
@@ -69,6 +75,8 @@ private:
 
     bool  _stateBool  = false;
     float _stateFloat = 0;
+    bool  _configured = false;   // true หลังจากได้รับ pin config จาก web หรือโหลดจาก NVS
+    int   _nvPin      = -1;      // pin ที่บันทึกไว้ใน NVS (ใช้ใน manifestEntry)
 
     std::function<void(bool)>  _cbDigital;
     std::function<void(int)>   _cbAnalog;

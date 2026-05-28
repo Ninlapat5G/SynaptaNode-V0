@@ -1,0 +1,17 @@
+{
+  "name": "SynaptaNode",
+  "version": "2.0.0",
+  "description": "ESP32 node library for Synapta smart home — MQTT 5, auto-discovery, NVS pin config",
+  "keywords": ["mqtt", "mqtt5", "esp32", "smarthome", "iot", "synapta"],
+  "authors": [{ "name": "Synapta", "maintainer": true }],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ninlapat5G/SynaptaNode"
+  },
+  "license": "LGPL-2.1",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "build": {
+    "flags": ["-DCONFIG_MQTT_PROTOCOL_5=1"]
+  }
+}

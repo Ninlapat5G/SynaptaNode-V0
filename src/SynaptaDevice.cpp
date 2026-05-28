@@ -83,7 +83,13 @@ String SynaptaDevice::_manifestEntry(const String& base) const {
     j += _topic;
     j += "\",\"type\":\"";
     j += typeName();
-    j += "\",\"stateTopic\":\"";
+    j += "\",\"configured\":";
+    j += _configured ? "true" : "false";
+    if (_configured && _nvPin >= 0) {
+        j += ",\"pin\":";
+        j += String(_nvPin);
+    }
+    j += ",\"stateTopic\":\"";
     j += _stateTopic(base);
     j += "\"";
     if (_type != NODE_SENSOR) {
@@ -113,10 +119,12 @@ void SynaptaDevice::_handleMessage(const char* payload) {
 }
 
 // ── Config handler ────────────────────────────────────────────────────────────
-// รับ JSON จาก web app ตอนกด save: {"pin":2,"type":"digital"} หรือ {"pin":5,"type":"pwm"}
+// รับ JSON จาก web app: {"pin":2,"type":"digital"} หรือ {"pin":5,"type":"pwm"}
+// ถ้ามี response_topic (MQTT 5) → ส่ง ACK กลับ {"ok":true,"applied":{...}}
 // เช็คค่าเดิมใน NVS ก่อน — เขียนเฉพาะเมื่อเปลี่ยนจริง (ถนอม flash)
 
-void SynaptaDevice::_handleConfig(const char* payload) {
+void SynaptaDevice::_handleConfig(const char* payload, const char* response_topic,
+                                   const uint8_t* correlation_data, size_t correlation_len) {
     String p(payload);
 
     // parse "pin": N  (ไม่ใช้ ArduinoJson เพื่อไม่เพิ่ม dependency)
@@ -136,23 +144,38 @@ void SynaptaDevice::_handleConfig(const char* payload) {
     bool oldIsPwm = prefs.getBool(keyT.c_str(), false);
     prefs.end();
 
-    if (oldPin == pin && oldIsPwm == isPwm) {
+    bool unchanged = (oldPin == pin && oldIsPwm == isPwm);
+
+    if (!unchanged) {
+        // บันทึกลง NVS
+        prefs.begin(PIN_NS, false);
+        prefs.putInt (key.c_str(),  pin);
+        prefs.putBool(keyT.c_str(), isPwm);
+        prefs.end();
+
+        Serial.printf("[Synapta] Config saved: %s → pin %d (%s)\n",
+                      _topic.c_str(), pin, isPwm ? "pwm" : "digital");
+
+        // Apply ทันที
+        if (isPwm) attachPWM((uint8_t)pin);
+        else       attachPin((uint8_t)pin);
+
+        _configured = true;
+        _nvPin      = pin;
+    } else {
         Serial.printf("[Synapta] Config unchanged for %s — skip NVS write\n", _topic.c_str());
-        return;
     }
 
-    // บันทึกลง NVS
-    prefs.begin(PIN_NS, false);
-    prefs.putInt (key.c_str(),  pin);
-    prefs.putBool(keyT.c_str(), isPwm);
-    prefs.end();
-
-    Serial.printf("[Synapta] Config saved: %s → pin %d (%s)\n",
-                  _topic.c_str(), pin, isPwm ? "pwm" : "digital");
-
-    // Apply ทันที
-    if (isPwm) attachPWM((uint8_t)pin);
-    else       attachPin((uint8_t)pin);
+    // ส่ง ACK กลับถ้ามี response_topic (MQTT 5)
+    if (response_topic && response_topic[0] != '\0') {
+        String ack = "{\"ok\":true,\"applied\":{\"pin\":";
+        ack += String(pin);
+        ack += ",\"type\":\"";
+        ack += isPwm ? "pwm" : "digital";
+        ack += "\"}}";
+        Synapta._publish(response_topic, ack.c_str(), false, 1);
+        Serial.printf("[Synapta] Config ACK → %s\n", response_topic);
+    }
 }
 
 // ── Boot: load pin from NVS ───────────────────────────────────────────────────
@@ -175,6 +198,9 @@ void SynaptaDevice::_loadPinConfig() {
 
     if (isPwm) attachPWM((uint8_t)pin);
     else       attachPin((uint8_t)pin);
+
+    _configured = true;
+    _nvPin      = pin;
 }
 
 // ── NVS key ───────────────────────────────────────────────────────────────────
@@ -299,14 +325,11 @@ void SynaptaDevice::_tickFade() {
 void SynaptaDevice::_publishState() {
     const String& base = Synapta.config().baseTopic;
     String payload;
-    if (_type == NODE_DIGITAL) {
-        payload = _stateBool ? "true" : "false";
-    } else if (_type == NODE_ANALOG) {
-        payload = String((int)_stateFloat);
-    } else {
-        payload = String(_stateFloat, 2);
-    }
-    Synapta._publish(_stateTopic(base).c_str(), payload.c_str(), true);
+    if (_type == NODE_DIGITAL)      payload = _stateBool ? "true" : "false";
+    else if (_type == NODE_ANALOG)  payload = String((int)_stateFloat);
+    else                            payload = String(_stateFloat, 2);
+    // retain + 5 นาที expiry (MQTT 5) — state เก่าหายเองถ้า node ไม่ reconnect
+    Synapta._publish(_stateTopic(base).c_str(), payload.c_str(), true, 1, 300);
 }
 
 // ── Bool parser ───────────────────────────────────────────────────────────────

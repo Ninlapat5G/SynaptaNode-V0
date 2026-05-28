@@ -1,38 +1,58 @@
 # SynaptaNode
 
-ESP32 Arduino library สำหรับระบบ [SynaptaOS](https://github.com/Ninlapat5G/SynaptaOS-V0) — เชื่อม ESP32 เข้ากับ AI smart home ผ่าน MQTT ใน 10 บรรทัด
+ESP32 library สำหรับระบบ [SynaptaOS](https://github.com/Ninlapat5G/SynaptaOS-V0) — เชื่อม ESP32 เข้ากับ AI smart home ผ่าน **MQTT 5** ใน 10 บรรทัด
+
+> **v2.0** — ใช้ `espressif/esp-mqtt` (built-in ESP-IDF) แทน library ภายนอก  
+> รองรับ MQTT 5 จริง: `responseTopic`, `correlationData`, `messageExpiryInterval`
 
 ---
 
 ## How it fits
 
-```mermaid
-flowchart TD
-    classDef app    fill:#1d3557,color:#fff,stroke:#457b9d,stroke-width:2px
-    classDef broker fill:#457b9d,color:#fff,stroke:none
-    classDef hw     fill:#2d6a4f,color:#fff,stroke:none
-
-    WA["SynaptaOS Web App (browser)"]:::app
-    B[MQTT Broker]:::broker
-    ESP["ESP32 + SynaptaNode"]:::hw
-
-    WA -->|"publish /{topic}/set"| B
-    B --> ESP
-    ESP -->|"publish /{topic}/state  (retain)"| B
-    B -->|"UI sync"| WA
+```
+Web App (browser)
+    │  publish /{topic}/set
+    ▼
+MQTT Broker (MQTT 5)
+    │  subscribe /{topic}/set  ←── ESP32 + SynaptaNode
+    │  publish /{topic}/state (retain, expiry 5 min)
+    │  publish /nodes/{id}/manifest (auto-discovery)
+    │  publish /nodes/{id}/status (online/offline will)
+    ▼
+Web App — UI sync, auto-discover devices
 ```
 
-Web AI คุยกับ ESP32 โดยตรง — ไม่ต้องมี hub สำหรับการควบคุม device
+Web AI คุยกับ ESP32 โดยตรง ไม่ต้องมี hub สำหรับควบคุม device
 
 ---
 
-## Installation
+## Installation (PlatformIO)
 
-1. Install dependency ผ่าน **Arduino Library Manager**: `PubSubClient` by Nick O'Leary
+**ต้องใช้ PlatformIO** — ไม่รองรับ Arduino IDE (library ใช้ ESP-IDF `esp-mqtt` ซึ่งไม่ได้อยู่ใน Arduino Library Manager)
 
-2. Copy โฟลเดอร์ `SynaptaNode` ไปไว้ใน `Arduino/libraries/`
+**วิธีที่ 1: ผ่าน lib_deps** (แนะนำ)
 
-3. `#include <Synapta.h>` ใน sketch
+สร้าง PlatformIO project แล้วใส่ใน `platformio.ini`:
+
+```ini
+[env:esp32dev]
+platform  = espressif32
+board     = esp32dev
+framework = arduino
+lib_deps  =
+    https://github.com/Ninlapat5G/SynaptaNode.git
+```
+
+`library.json` ใน repo จะ inject `-DCONFIG_MQTT_PROTOCOL_5=1` ให้อัตโนมัติ — ไม่ต้องตั้งเพิ่ม
+
+**วิธีที่ 2: Local copy**
+
+Clone repo แล้วใส่ path ใน `lib_deps`:
+```ini
+lib_deps = /path/to/SynaptaNode
+```
+
+จากนั้น `#include <Synapta.h>` ใน `src/main.cpp`
 
 ---
 
@@ -54,7 +74,7 @@ void loop() {
 }
 ```
 
-ตอน node เชื่อม MQTT สำเร็จ → publish manifest ให้ Web App ค้นพบ devices อัตโนมัติ
+เมื่อ node เชื่อม MQTT สำเร็จ → publish manifest ให้ Web App ค้นพบ devices อัตโนมัติ
 
 ---
 
@@ -66,13 +86,13 @@ void loop() {
 |--------|-------------|
 | `wifi(ssid, pass)` | ตั้ง WiFi credentials |
 | `baseTopic(base)` | ตั้ง base topic (ต้องตรงกับ Web App) |
-| `broker(host, port, tls)` | เปลี่ยน broker (default: HiveMQ public, TLS) |
+| `broker(host, port, tls)` | เปลี่ยน broker (default: HiveMQ public, TLS 8883) |
 | `mqttAuth(user, pass)` | สำหรับ broker ที่ต้อง auth |
-| `nodeId(id)` | ตั้งชื่อ node เอง (default: derive จาก MAC) |
-| `start()` | เชื่อม WiFi + MQTT |
+| `nodeId(id)` | ตั้งชื่อ node เอง (default: derive จาก MAC address) |
+| `start()` | เชื่อม WiFi (blocking) แล้วเริ่ม MQTT (background) |
 | `configure(ssid, pass, base)` | บันทึก credential ลง NVS + start |
 | `begin()` | โหลด credential จาก NVS แล้ว start |
-| `loop()` | เรียกใน `loop()` ทุก cycle |
+| `loop()` | เรียกใน `loop()` ทุก cycle — process messages + device logic |
 | `isConnected()` | `true` เมื่อ MQTT พร้อม |
 | `onConnect(cb)` / `onDisconnect(cb)` | event callbacks |
 
@@ -88,13 +108,13 @@ SynaptaSensor  temp  ("bedroom/temp");    // publish only
 |--------|--------|-------------|
 | `onCommand(cb)` | Digital | `cb(bool on)` |
 | `onValue(cb)` | Analog | `cb(int value)` |
-| `attachPin(pin)` | Digital | auto GPIO |
-| `attachPWM(pin)` | Analog | auto PWM (LEDC) |
-| `attachButton(pin)` | Digital | ปุ่มกด active-low, debounce 50ms |
+| `attachPin(pin)` | Digital | auto drive GPIO HIGH/LOW |
+| `attachPWM(pin)` | Analog | auto drive PWM ผ่าน LEDC |
+| `attachButton(pin)` | Digital | ปุ่มกด active-low, debounce 50ms, toggle + publish |
 | `every(ms, cb)` | Sensor | publish ทุก ms |
 | `turnOn()` / `turnOff()` / `toggle()` | Digital | สั่งจาก code |
 | `setLevel(0..255)` | Analog | สั่งจาก code |
-| `fade(ms)` | Analog | ค่อยๆ เปลี่ยน (default 200ms) |
+| `fade(ms)` | Analog | ค่อยๆ เปลี่ยนค่า (default 200ms, 0 = instant) |
 | `gamma(g)` | Analog | gamma correction สำหรับ LED (default 2.2) |
 
 ### MQTT Payload
@@ -103,7 +123,21 @@ SynaptaSensor  temp  ("bedroom/temp");    // publish only
 
 **Analog `/set`:** integer string `"0"` – `"255"`
 
-**State `/state` (retain=true):** `"true"/"false"` | `"0"–"255"` | float string
+**State `/state`** (retain, expiry 5 min): `"true"/"false"` | `"0"–"255"` | float string
+
+**Manifest `/nodes/{id}/manifest`** (retain, expiry 1 hr): JSON auto-discovery payload
+
+---
+
+## MQTT 5 Features
+
+| Feature | สถานะ | รายละเอียด |
+|---------|--------|-----------|
+| `messageExpiryInterval` บน state | ✅ | 300 วินาที — state เก่าหายเองเมื่อ node ไม่ reconnect |
+| `messageExpiryInterval` บน manifest | ✅ | 3600 วินาที |
+| Will Message | ✅ | publish "offline" อัตโนมัติเมื่อ node หลุด |
+| Config ACK (`responseTopic`) | ✅ | Web App ส่ง pin config → ESP32 ตอบ ACK กลับ topic ที่ขอ |
+| `correlationData` | ✅ | ส่งกลับพร้อม ACK เพื่อ match request |
 
 ---
 
@@ -120,6 +154,19 @@ SynaptaSensor  temp  ("bedroom/temp");    // publish only
 | `07_NvsCredentials` | บันทึก credential ลง NVS ครั้งเดียว |
 | `08_MqttAuth` | broker ที่ต้อง user/pass |
 | `09_LocalBroker` | Mosquitto/EMQX ใน LAN (no TLS) |
+
+แต่ละ example มี `platformio.ini` พร้อมใช้ และ code อยู่ใน `src/main.cpp`
+
+---
+
+## Broker Requirements
+
+| Broker | MQTT 5 | หมายเหตุ |
+|--------|--------|----------|
+| HiveMQ Public | ✅ | default ใน library (TLS 8883) |
+| HiveMQ Cloud | ✅ | ใช้ `mqttAuth()` |
+| EMQX | ✅ | รองรับทุก version |
+| Mosquitto | ✅ | ต้องใช้ version 2.0 ขึ้นไป |
 
 ---
 
