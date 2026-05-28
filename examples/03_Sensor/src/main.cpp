@@ -15,9 +15,11 @@ float readTemp() {
     return 25.0f;
 }
 
-SynaptaSensor temp("bedroom/temp");
+// arg 2 = ชื่อสำหรับ Web App แสดง (รองรับภาษาไทย — เป็น UTF-8)
+SynaptaSensor temp("bedroom/temp", "อุณหภูมิห้องนอน");
 
 extern "C" void app_main() {
+    temp.unit("°C");              // หน่วยที่เว็บจะแสดงข้างค่า
     temp.every(30000, readTemp);
 
     Synapta.wifi("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD");

@@ -14,11 +14,35 @@ static const char* PIN_NS = "syn-pins";
 
 static inline uint32_t _millis() { return (uint32_t)(esp_timer_get_time() / 1000ULL); }
 
+// escape string ให้ปลอดภัยใน JSON — byte UTF-8 (เช่นภาษาไทย) ส่งผ่านตรง ๆ
+static std::string _jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += (char)c;   // >= 0x20 รวม UTF-8 multibyte → ผ่านได้เลย
+                }
+        }
+    }
+    return out;
+}
+
 uint8_t SynaptaDevice::_gammaLut[256];
 float   SynaptaDevice::_gammaValue = 0.0f;
 
-SynaptaDevice::SynaptaDevice(const char* topic, DeviceType type)
-    : _topic(topic), _type(type)
+SynaptaDevice::SynaptaDevice(const char* topic, DeviceType type, const char* name)
+    : _topic(topic), _type(type), _name(name)
 {
     _SynaptaRegistry::devices().push_back(this);
 }
@@ -109,10 +133,24 @@ const char* SynaptaDevice::typeName() const {
 std::string SynaptaDevice::_manifestEntry(const std::string& base) const {
     std::string j = "{\"topic\":\"";
     j += _topic;
-    j += "\",\"type\":\"";
+    j += "\"";
+    if (!_name.empty()) {
+        j += ",\"name\":\"";
+        j += _jsonEscape(_name);
+        j += "\"";
+    }
+    j += ",\"type\":\"";
     j += typeName();
     j += "\",\"configured\":";
     j += _configured ? "true" : "false";
+    if (_type == NODE_ANALOG) {
+        j += ",\"max\":255";          // PWM 8-bit — เว็บล็อก max ตามนี้
+    }
+    if (_type == NODE_SENSOR && !_unit.empty()) {
+        j += ",\"unit\":\"";
+        j += _jsonEscape(_unit);
+        j += "\"";
+    }
     if (_configured && _nvPin >= 0) {
         j += ",\"pin\":";
         j += std::to_string(_nvPin);

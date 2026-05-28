@@ -11,7 +11,8 @@ public:
     static constexpr uint8_t NO_PIN = 255;
 
     // topic = full path ใต้ baseTopic เช่น "living-room/lamp"
-    SynaptaDevice(const char* topic, DeviceType type);
+    // name  = ชื่อสำหรับ Web App แสดงผล (optional — ไม่ใส่ เว็บจะ derive จาก topic)
+    SynaptaDevice(const char* topic, DeviceType type, const char* name = "");
 
     // DIGITAL: fires on "true"/"on"/"1"/"toggle"/"false"/"off"/"0"
     void onCommand(std::function<void(bool)> cb);
@@ -37,6 +38,9 @@ public:
 
     float value() const;
 
+    // หน่วยของ sensor สำหรับให้ Web App แสดง เช่น "°C" (optional)
+    void setUnit(const char* u) { _unit = u; }
+
     // Internal — เรียกโดย SynaptaNode
     void _handleMessage(const char* payload);
     void _handleConfig (const char* payload,
@@ -61,6 +65,8 @@ public:
 private:
     std::string _topic;
     DeviceType  _type;
+    std::string _name;   // ชื่อสำหรับ Web App (ไม่ตั้งก็ได้ — เว็บ derive จาก topic)
+    std::string _unit;   // หน่วยของ sensor เช่น "°C" (optional)
 
     bool  _stateBool  = false;
     float _stateFloat = 0;

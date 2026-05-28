@@ -202,6 +202,7 @@ void SynaptaNodeClass::_onConnected() {
     _publish(_statusTopic().c_str(), "online", true, 1);
 
     for (auto* d : _devices) {
+        if (d->getType() == NODE_SENSOR) continue;   // sensor อ่านอย่างเดียว ไม่มี cmd/config
         std::string cmd = d->_cmdTopic(_cfg.baseTopic);
         std::string cfg = d->_configTopic(_cfg.baseTopic);
         esp_mqtt_client_subscribe(_client, cmd.c_str(), 1);

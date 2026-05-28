@@ -25,8 +25,8 @@ public:
     // topic = path ใต้ baseTopic เช่น "bedroom/relay"
     // pin assignment: ตั้งจาก Web App → Edit → Pin → Save
     // (ถ้าต้องการผูก pin ใน code: เรียก attachPin(2) แยกต่างหาก)
-    explicit SynaptaDigital(const char* topic)
-        : SynaptaDevice(topic, NODE_DIGITAL) {}
+    explicit SynaptaDigital(const char* topic, const char* name = "")
+        : SynaptaDevice(topic, NODE_DIGITAL, name) {}
 
     bool isOn()  const { return value() > 0.5f; }
     void turnOn()      { set(true); }
@@ -38,8 +38,8 @@ public:
 // ── Analog — ค่า 0–255 (PWM) ─────────────────────────────────────────────────
 class SynaptaAnalog : public SynaptaDevice {
 public:
-    explicit SynaptaAnalog(const char* topic)
-        : SynaptaDevice(topic, NODE_ANALOG) {}
+    explicit SynaptaAnalog(const char* topic, const char* name = "")
+        : SynaptaDevice(topic, NODE_ANALOG, name) {}
 
     int  level()       const { return (int)value(); }
     void setLevel(int v)     { set(v); }
@@ -58,16 +58,19 @@ public:
     // แบบ 1: ประกาศ topic ก่อน แล้วเรียก every() ใน setup()
     //   SynaptaSensor temp("sensors/temp");
     //   void setup() { temp.every(5000, readTemp); ... }
-    explicit SynaptaSensor(const char* topic)
-        : SynaptaDevice(topic, NODE_SENSOR) {}
+    explicit SynaptaSensor(const char* topic, const char* name = "")
+        : SynaptaDevice(topic, NODE_SENSOR, name) {}
 
     // แบบ 2: ระบุ interval และ function ในบรรทัดเดียวเลย
     //   SynaptaSensor temp("sensors/temp", 5000, readTemp);
-    SynaptaSensor(const char* topic, uint32_t intervalMs, float(*readFn)())
-        : SynaptaDevice(topic, NODE_SENSOR)
+    SynaptaSensor(const char* topic, uint32_t intervalMs, float(*readFn)(), const char* name = "")
+        : SynaptaDevice(topic, NODE_SENSOR, name)
     {
         every(intervalMs, readFn);
     }
+
+    // หน่วยที่จะให้เว็บแสดง เช่น temp.unit("°C");
+    SynaptaSensor& unit(const char* u) { setUnit(u); return *this; }
 
     float read() const { return value(); }
 };
