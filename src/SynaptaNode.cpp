@@ -5,6 +5,7 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "esp_crt_bundle.h"
 #include <cstring>
 
 SynaptaNodeClass Synapta;
@@ -142,16 +143,16 @@ void SynaptaNodeClass::_init() {
     cfg.session.last_will.msg_len       = 7;
 
     if (!s_user.empty()) {
-        cfg.credentials.username                    = s_user.c_str();
-        cfg.credentials.authentication.password     = s_pass.c_str();
-        cfg.credentials.authentication.password_len = s_pass.length();
+        cfg.credentials.username                = s_user.c_str();
+        cfg.credentials.authentication.password = s_pass.c_str();
+        // password_len removed in ESP-IDF 5.x — password is null-terminated
     }
     if (_cfg.mqttTLS) {
-        cfg.broker.verification.skip_cert_common_name_check = true;
+        cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
     }
 
     _client = esp_mqtt_client_init(&cfg);
-    esp_mqtt_client_register_event(_client, ESP_EVENT_ANY_ID, _eventHandler, this);
+    esp_mqtt_client_register_event(_client, MQTT_EVENT_ANY, _eventHandler, this);
     esp_mqtt_client_start(_client);
 
     printf("[Synapta] MQTT connecting (MQTT 5)...\n");
@@ -217,15 +218,18 @@ void SynaptaNodeClass::_onData(esp_mqtt_event_handle_t event) {
     msg.topic   = std::string(event->topic,   event->topic_len);
     msg.payload = std::string(event->data,    event->data_len);
 
+#ifdef CONFIG_MQTT_PROTOCOL_5
     if (event->property) {
-        if (event->property->response_topic) {
-            msg.responseTopic = event->property->response_topic;
+        if (event->property->response_topic && event->property->response_topic_len > 0) {
+            msg.responseTopic = std::string(event->property->response_topic,
+                                            event->property->response_topic_len);
         }
         if (event->property->correlation_data && event->property->correlation_data_len > 0) {
             const auto* cd = reinterpret_cast<const uint8_t*>(event->property->correlation_data);
             msg.corrData.assign(cd, cd + event->property->correlation_data_len);
         }
     }
+#endif
 
     xSemaphoreTake(_mutex, portMAX_DELAY);
     _inbox.push_back(std::move(msg));
@@ -258,18 +262,22 @@ bool SynaptaNodeClass::_publish(const char* topic, const char* payload,
                                 bool retain, int qos, uint32_t expirySeconds) {
     if (!_client || !_connected) return false;
 
+#ifdef CONFIG_MQTT_PROTOCOL_5
     if (expirySeconds > 0) {
         esp_mqtt5_publish_property_config_t prop = {};
         prop.message_expiry_interval = expirySeconds;
         esp_mqtt5_client_set_publish_property(_client, &prop);
     }
+#endif
 
     int ret = esp_mqtt_client_publish(_client, topic, payload, 0, qos, retain ? 1 : 0);
 
+#ifdef CONFIG_MQTT_PROTOCOL_5
     if (expirySeconds > 0) {
         esp_mqtt5_publish_property_config_t reset = {};
         esp_mqtt5_client_set_publish_property(_client, &reset);
     }
+#endif
 
     return ret >= 0;
 }

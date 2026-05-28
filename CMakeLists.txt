@@ -15,4 +15,5 @@ idf_component_register(
         esp_timer
         freertos
         log
+        esp_crt_bundle
 )
