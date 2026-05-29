@@ -39,7 +39,7 @@ platform  = espressif32
 board     = esp32dev
 framework = espidf
 lib_deps  =
-    https://github.com/Ninlapat5G/SynaptaNode.git
+    https://github.com/Ninlapat5G/SynaptaNode-V0.git
 ```
 
 2. สร้างไฟล์ `sdkconfig.defaults` ในโปรเจค (สำคัญมาก — ขาดไม่ได้):

@@ -55,9 +55,9 @@ public:
 // ── Sensor — publish ค่า float ตามช่วงเวลา ───────────────────────────────────
 class SynaptaSensor : public SynaptaDevice {
 public:
-    // แบบ 1: ประกาศ topic ก่อน แล้วเรียก every() ใน setup()
+    // แบบ 1: ประกาศ topic ก่อน แล้วเรียก every() ใน app_main()
     //   SynaptaSensor temp("sensors/temp");
-    //   void setup() { temp.every(5000, readTemp); ... }
+    //   void app_main() { temp.every(5000, readTemp); ... }
     explicit SynaptaSensor(const char* topic, const char* name = "")
         : SynaptaDevice(topic, NODE_SENSOR, name) {}
 
